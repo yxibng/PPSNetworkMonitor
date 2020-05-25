@@ -14,6 +14,9 @@ static NSString *const PPSHTTP = @"PPSHTTP";//为了避免canInitWithRequest和c
 @interface PPSURLProtocol()<NSURLConnectionDelegate,NSURLConnectionDataDelegate>
 
 @property (nonatomic, strong) NSURLConnection *connection;
+@property (nonatomic, strong) NSURLSessionDataTask *task;
+
+
 @property (nonatomic, strong) NSURLRequest *pps_request;
 @property (nonatomic, strong) NSURLResponse *pps_response;
 @property (nonatomic, strong) NSMutableData *pps_data;
@@ -88,76 +91,30 @@ static NSString *const PPSHTTP = @"PPSHTTP";//为了避免canInitWithRequest和c
 
 - (void)startLoading {
     NSURLRequest *request = [[self class] canonicalRequestForRequest:self.request];
-    self.connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
-    self.pps_request = self.request;
+    
+    NSURLSessionDataTask *task =  [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+        if (error) {
+            [self.client URLProtocol:self didFailWithError:error];
+        } else {
+            
+            id json = [self responseJSONFromData:data];
+            NSLog(@"json = %@",json);
+            
+            [self.client URLProtocol:self didLoadData:data];
+            [self.client URLProtocolDidFinishLoading:self];
+        }
+    }];
+    
+    [task resume];
+    self.task = task;
 }
 
 - (void)stopLoading {
-    [self.connection cancel];
-
-    //获取请求方法
-    NSString *requestMethod = self.pps_request.HTTPMethod;
-    NSLog(@"请求方法：%@\n",requestMethod);
+    [self.task cancel];
     
-    //获取请求头
-    NSDictionary *headers = self.pps_request.allHTTPHeaderFields;
-    NSLog(@"请求头：\n");
-    for (NSString *key in headers.allKeys) {
-        NSLog(@"%@ : %@",key,headers[key]);
-    }
-
-    //获取请求结果
-    NSString *string = [self responseJSONFromData:self.pps_data];
-    NSLog(@"请求结果：%@",string);
+    NSLog(@"self.request = %@",self.request);
+    NSLog(@"self.response = %@",self.cachedResponse);
     
-}
-
-#pragma mark - NSURLConnectionDelegate
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error{
-    [self.client URLProtocol:self didFailWithError:error];
-}
-
-- (BOOL)connectionShouldUseCredentialStorage:(NSURLConnection *)connection{
-    return YES;
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge{
-    [self.client URLProtocol:self didReceiveAuthenticationChallenge:challenge];
-}
-
-- (void)connection:(NSURLConnection *)connection
-didCancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge {
-    [self.client URLProtocol:self didCancelAuthenticationChallenge:challenge];
-}
-
-#pragma mark - NSURLConnectionDataDelegate
--(NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)request redirectResponse:(NSURLResponse *)response{
-    if (response != nil) {
-        self.pps_response = response;
-        [self.client URLProtocol:self wasRedirectedToRequest:request redirectResponse:response];
-    }
-    return request;
-}
-
-- (void)connection:(NSURLConnection *)connection
-didReceiveResponse:(NSURLResponse *)response {
-    [[self client] URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageAllowed];
-    self.pps_response = response;
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-    [self.client URLProtocol:self didLoadData:data];
-    [self.pps_data appendData:data];
-    NSLog(@"receiveData");
-}
-
-- (NSCachedURLResponse *)connection:(NSURLConnection *)connection
-                  willCacheResponse:(NSCachedURLResponse *)cachedResponse {
-    return cachedResponse;
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-    [[self client] URLProtocolDidFinishLoading:self];
 }
 
 //转换json
